@@ -18,7 +18,7 @@ else()
     message(FATAL_ERROR "Could not find Boost")
 endif()
 
-add_executable(main src/main.cpp)
+add_executable(main src/c2/c2.cpp)
 
 # Include Boost headers
 target_include_directories(main PRIVATE ${Boost_INCLUDE_DIRS})
