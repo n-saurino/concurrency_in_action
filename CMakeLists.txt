@@ -21,7 +21,7 @@ endif()
 add_executable(main src/c2/c2.cpp)
 
 # Include Boost headers
-target_include_directories(main PRIVATE ${Boost_INCLUDE_DIRS})
+target_include_directories(main PRIVATE ${Boost_INCLUDE_DIRS} "${CMAKE_SOURCE_DIR}/include")
 
 # Link Boost libraries
 target_link_libraries(main PRIVATE ${Boost_LIBRARIES})
