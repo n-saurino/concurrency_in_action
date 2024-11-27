@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <deque>
 #include <mutex>
+#include <condition_variable>
 
 /*
 Exercise 6: Exploring std::thread::hardware_concurrency
@@ -35,21 +36,19 @@ Exercise 7: Combining Threads with Mutexes
 
 class ScopedThread{
 public:
-    ScopedThread();
+    ScopedThread(std::thread t);
     ~ScopedThread();
     ScopedThread(const ScopedThread& other) = delete;
     ScopedThread& operator=(const ScopedThread& other) = delete;
 
 private:
     std::thread t_;
-    void Run();
 };
 
-ScopedThread::ScopedThread(){
+ScopedThread::ScopedThread(std::thread t): t_{std::move(t)}{
     if(!t_.joinable()){
-        throw std::logic_error("Couldn't create thread!");
+        throw std::logic_error("No thread!");
     }
-    t_{Run};
 }
 
 ScopedThread::~ScopedThread(){
@@ -58,47 +57,66 @@ ScopedThread::~ScopedThread(){
     }
 }
 
-void ScopedThread::Run(){
-    // sleep until signaled to wake up
-
-    // then wake up and remove a task from the queue
-    std::string task = ThreadPool::tasks_.front();
-    int word_count{};
-    GetWords(task, word_count);
-}
-
 class ThreadPool{
 public:
     // constructors
-    ThreadPool(size_t total_threads);
+    ThreadPool(size_t num_threads);
     ~ThreadPool();
     ThreadPool(const ThreadPool& other) = delete;
     ThreadPool& operator=(const ThreadPool& other) = delete;
     
     // user-defined functions
     // returns 1 if error, returns 0 if success
-    int AddTask(const std::string& task);
-    friend class ScopedThread;
-
+    int AddTask(std::function<void>&& task);
+    void Run();
 private:
     std::vector<ScopedThread> threads_{};
-    std::deque<std::string> tasks_{};
+    std::deque<std::function<void()>> tasks_{};
     std::mutex mx_{};
+    std::condition_variable condition{};
+    bool stop{false};
 };
 
-// ThreadPool constructor will take a total number of threads to start
-ThreadPool::ThreadPool(size_t total_threads): threads_{total_threads}{
+void ThreadPool::Run(){
+    while(true){
+        std::unique_lock<std::mutex> ul{mx_};
+        condition.wait(ul, [this]{return stop || !tasks_.empty();});
+        
+        // termination condition to end pool
+        if(stop && tasks_.empty()){
+            return;
+        }
+        // it's our turn to get a task!
+        ul.lock();
+        std::function<void()> task = std::move(tasks_.front());
+        tasks_.pop_front();
+        ul.unlock();
+        task();
+    }
+}
 
+// ThreadPool constructor will take a total number of threads to start
+ThreadPool::ThreadPool(size_t num_threads): threads_(num_threads){
+    // need to create threads and add them to the threads vector 
+    for(int i = 0; i < num_threads; ++i){
+        // ScopedThread constructor will call Run() automatically
+        std::thread t{ThreadPool::Run};
+        // must transfer ownership of thread with move!
+        threads_.push_back(ScopedThread{std::move(t)});
+    }
 }
 
 ThreadPool::~ThreadPool(){
 
 }
 
-int ThreadPool::AddTask(const std::string& line){
-    tasks_.push_back(line);
-    // signal a thread in the pool
+int ThreadPool::AddTask(std::function<void>&& task){
+    // lock the queue
+    std::lock_guard lg(mx_);
+    tasks_.emplace_back(task);
 
+    // signal a thread in the pool
+    condition.notify_one();
 }
 
 void GetWords(const std::string& line, int& word_count){
@@ -132,6 +150,7 @@ Consider creating a LockGuard class that manages the mutex acquisition/release
 
 int ex6(){
 
+    /*
     std::ifstream file;
     file.open("corpus.txt", std::ifstream::in);
 
@@ -153,7 +172,20 @@ int ex6(){
     std::cout << "There are " << result << " words in the corpus!\n";
     std::cout << "Total runtime: " << total_time.count() << "\n";
     
-    size_t cpus = std::thread::hardware_concurrency();
     std::cout << "CPUs: " << cpus << "\n";
+    */
+
+   size_t cpus = std::thread::hardware_concurrency();
+
+    ThreadPool pool{cpus};
+
+    for(int i = 0; i < 100; ++i){
+        pool.AddTask([](int task_no){
+            std::cout << "Executing task " << task_no << " on thread " 
+                      << std::this_thread::get_id() << "!\n";
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        });
+    }
+
     return 0;
 }
