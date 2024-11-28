@@ -38,6 +38,19 @@ class ScopedThread{
 public:
     ScopedThread(std::thread t);
     ~ScopedThread();
+    // Define the move constructor
+    ScopedThread(ScopedThread&& other) noexcept : t_(std::move(other.t_)) {}
+
+    // Define the move assignment operator
+    ScopedThread& operator=(ScopedThread&& other) noexcept {
+        if (this != &other) {
+            if (t_.joinable()) {
+                t_.join();
+            }
+            t_ = std::move(other.t_);
+        }
+        return *this;
+    }
     ScopedThread(const ScopedThread& other) = delete;
     ScopedThread& operator=(const ScopedThread& other) = delete;
 
@@ -69,19 +82,27 @@ public:
     // returns 1 if error, returns 0 if success
     int AddTask(std::function<void()>&& task);
     void Run();
+    void Wait();
 private:
     std::vector<ScopedThread> threads_{};
     std::deque<std::function<void()>> tasks_{};
     std::mutex mx_{};
-    std::condition_variable condition{};
+    std::condition_variable condition_{};
+    std::condition_variable tasks_done_{};
+    std::size_t active_tasks_{0};
     bool stop{false};
 };
+
+void ThreadPool::Wait(){
+    std::unique_lock<std::mutex> ul{mx_};
+    tasks_done_.wait(ul, [this](){return tasks_.empty() && active_tasks_ == 0;});
+}
 
 // function call that a thread is started with on Pool initialization
 void ThreadPool::Run(){
     while(true){
         std::unique_lock<std::mutex> ul{mx_};
-        condition.wait(ul, [this]{return stop || !tasks_.empty();});
+        condition_.wait(ul, [this]{return stop || !tasks_.empty();});
         
         // termination condition to end pool
         if(stop && tasks_.empty()){
@@ -90,17 +111,30 @@ void ThreadPool::Run(){
         // it's our turn to get a task!f
         std::function<void()> task = std::move(tasks_.front());
         tasks_.pop_front();
+        // increment active tasks
+        ++active_tasks_;
         ul.unlock();
-        task();
+        // Execute the task outside the critical section
+        if (task) {
+            task();
+        }
+
+        {
+            std::lock_guard<std::mutex> lg{mx_};
+            --active_tasks_;
+            if(tasks_.empty() && active_tasks_ == 0){
+                tasks_done_.notify_one();
+            }
+        }
     }
 }
 
 // ThreadPool constructor will take a total number of threads to start
-ThreadPool::ThreadPool(size_t num_threads): threads_(num_threads){
+ThreadPool::ThreadPool(size_t num_threads){
     // need to create threads and add them to the threads vector 
     for(int i = 0; i < num_threads; ++i){
         // ScopedThread constructor will call Run() automatically
-        std::thread t([this](){Run()});
+        std::thread t([this](){Run();});
         // must transfer ownership of thread with move!
         threads_.push_back(ScopedThread{std::move(t)});
     }
@@ -113,19 +147,20 @@ ThreadPool::~ThreadPool(){
     stop = true;
     ul.unlock();
     // notify all threads
-    condition.notify_all();
+    condition_.notify_all();
 
-    // join threads if not a scoped thread
+    // force destructor of Scoped threads by clearing the threads vector
+    threads_.clear();
 }
 
 int ThreadPool::AddTask(std::function<void()>&& task){
     // lock the queue
     {
         std::lock_guard<std::mutex> lg(mx_);
-        tasks_.emplace_back(task);
+        tasks_.emplace_back(std::move(task));
     }
     // signal a thread in the pool
-    condition.notify_one();
+    condition_.notify_one();
 
     return 0;
 }
@@ -139,8 +174,10 @@ void GetWords(const std::string& line, int& word_count){
 }
 
 void TestFunc(int task_no){
-    std::cout << "Executing task " << task_no << " on thread " 
+    std::stringstream ss;
+    ss << "Executing task " << task_no << " on thread " 
               << std::this_thread::get_id() << "!\n";
+    std::cout << ss.str();
     std::this_thread::sleep_for(std::chrono::seconds(1));
 }
 
@@ -192,13 +229,24 @@ int ex6(){
     std::cout << "CPUs: " << cpus << "\n";
     */
 
-   size_t cpus = std::thread::hardware_concurrency();
+   size_t cpus = std::thread::hardware_concurrency() - 1;
 
-    ThreadPool pool{cpus};
+    ThreadPool pool{1};
 
-    for(int i = 0; i < 100; ++i){
+    auto start = std::chrono::high_resolution_clock::now();
+
+    for(int i = 0; i < 16; ++i){
         pool.AddTask([i](){TestFunc(i);});
     }
 
+    // wait for task completion so that we can get accurate time
+    pool.Wait();
+
+    auto end = std::chrono::high_resolution_clock::now();
+
+    auto total_time = std::chrono::duration_cast<std::chrono::microseconds>
+                      (end - start);
+
+    std::cout << "Total runtime: " << total_time.count() << "\n";
     return 0;
 }
