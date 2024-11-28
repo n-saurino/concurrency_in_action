@@ -203,40 +203,28 @@ Consider creating a LockGuard class that manages the mutex acquisition/release
 */
 
 int ex6(){
-
-    /*
-    std::ifstream file;
-    file.open("corpus.txt", std::ifstream::in);
-
-    std::string input{};
-    int result{0};
-
-    auto start = std::chrono::high_resolution_clock::now();
-    if(file.is_open()){
-        while(getline(file, input)){    
-            GetWords(input, result);
-        }
-    }
-
-    auto end = std::chrono::high_resolution_clock::now();
-
-    auto total_time = std::chrono::duration_cast<std::chrono::microseconds>
-                      (end - start);
-
-    std::cout << "There are " << result << " words in the corpus!\n";
-    std::cout << "Total runtime: " << total_time.count() << "\n";
-    
-    std::cout << "CPUs: " << cpus << "\n";
-    */
-
-   size_t cpus = std::thread::hardware_concurrency() - 1;
+    // set the number of threads based on hardware
+    size_t cpus = std::thread::hardware_concurrency() - 1;
 
     ThreadPool pool{cpus};
 
+    std::ifstream file;
+    file.open("test.txt", std::ifstream::in);
+
+    std::string input{};
+    int result{0};
+    std::mutex result_mutex;
     auto start = std::chrono::high_resolution_clock::now();
 
-    for(int i = 0; i < 16; ++i){
-        pool.AddTask([i](){TestFunc(i);});
+    if(file.is_open()){
+        while(getline(file, input)){    
+            pool.AddTask([input, &result, &result_mutex](){
+                int local_count{0};
+                GetWords(input, local_count);
+                std::lock_guard<std::mutex> lg{result_mutex};
+                result += local_count;
+                });
+        }
     }
 
     // wait for task completion so that we can get accurate time
@@ -247,6 +235,7 @@ int ex6(){
     auto total_time = std::chrono::duration_cast<std::chrono::microseconds>
                       (end - start);
 
+    std::cout << "There are " << result << " words in the corpus!\n";
     std::cout << "Total runtime: " << total_time.count() << "\n";
     return 0;
 }
