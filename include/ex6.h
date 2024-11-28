@@ -67,7 +67,7 @@ public:
     
     // user-defined functions
     // returns 1 if error, returns 0 if success
-    int AddTask(std::function<void>&& task);
+    int AddTask(std::function<void()>&& task);
     void Run();
 private:
     std::vector<ScopedThread> threads_{};
@@ -77,6 +77,7 @@ private:
     bool stop{false};
 };
 
+// function call that a thread is started with on Pool initialization
 void ThreadPool::Run(){
     while(true){
         std::unique_lock<std::mutex> ul{mx_};
@@ -86,8 +87,7 @@ void ThreadPool::Run(){
         if(stop && tasks_.empty()){
             return;
         }
-        // it's our turn to get a task!
-        ul.lock();
+        // it's our turn to get a task!f
         std::function<void()> task = std::move(tasks_.front());
         tasks_.pop_front();
         ul.unlock();
@@ -100,23 +100,34 @@ ThreadPool::ThreadPool(size_t num_threads): threads_(num_threads){
     // need to create threads and add them to the threads vector 
     for(int i = 0; i < num_threads; ++i){
         // ScopedThread constructor will call Run() automatically
-        std::thread t{ThreadPool::Run};
+        std::thread t([this](){Run()});
         // must transfer ownership of thread with move!
         threads_.push_back(ScopedThread{std::move(t)});
     }
 }
 
 ThreadPool::~ThreadPool(){
+    // acquire lock
+    std::unique_lock<std::mutex> ul{mx_};
+    // update stop
+    stop = true;
+    ul.unlock();
+    // notify all threads
+    condition.notify_all();
 
+    // join threads if not a scoped thread
 }
 
-int ThreadPool::AddTask(std::function<void>&& task){
+int ThreadPool::AddTask(std::function<void()>&& task){
     // lock the queue
-    std::lock_guard lg(mx_);
-    tasks_.emplace_back(task);
-
+    {
+        std::lock_guard<std::mutex> lg(mx_);
+        tasks_.emplace_back(task);
+    }
     // signal a thread in the pool
     condition.notify_one();
+
+    return 0;
 }
 
 void GetWords(const std::string& line, int& word_count){
@@ -125,6 +136,12 @@ void GetWords(const std::string& line, int& word_count){
  
     word_count += std::distance(std::istream_iterator<std::string>(ss), 
                                std::istream_iterator<std::string>());
+}
+
+void TestFunc(int task_no){
+    std::cout << "Executing task " << task_no << " on thread " 
+              << std::this_thread::get_id() << "!\n";
+    std::this_thread::sleep_for(std::chrono::seconds(1));
 }
 
 /*
@@ -180,11 +197,7 @@ int ex6(){
     ThreadPool pool{cpus};
 
     for(int i = 0; i < 100; ++i){
-        pool.AddTask([](int task_no){
-            std::cout << "Executing task " << task_no << " on thread " 
-                      << std::this_thread::get_id() << "!\n";
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        });
+        pool.AddTask([i](){TestFunc(i);});
     }
 
     return 0;
