@@ -231,7 +231,7 @@ int ex6(){
 
    size_t cpus = std::thread::hardware_concurrency() - 1;
 
-    ThreadPool pool{1};
+    ThreadPool pool{cpus};
 
     auto start = std::chrono::high_resolution_clock::now();
 
