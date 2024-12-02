@@ -3,13 +3,14 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <sstream>
 
 class ScopedThread
 {
 private:
     std::thread t_{};
 public:
-    ScopedThread(const std::thread t);
+    explicit ScopedThread(const std::thread t);
     ~ScopedThread();
     ScopedThread(ScopedThread& other) = delete;
     // move constructor

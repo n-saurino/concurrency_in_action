@@ -6,7 +6,7 @@
 
 ScopedThread::ScopedThread(std::thread t): t_{std::move(t)}
 {
-    if(!t.joinable()){
+    if(!t_.joinable()){
         throw(std::logic_error("No thread!"));
     }
 }
@@ -40,25 +40,32 @@ struct counter{
 };
 
 void IncrementCounter(counter& c){
-    for(int i = 0; i < 100; ++i){
-        std::lock_guard<std::mutex> lg{c.mx_};
-        c.counter_++;
-        std::cout << "Thread " << std::this_thread::get_id() << " set "
-                  << "the counter to " << c.counter_ << "\n";
+    std::stringstream ss{};
+
+    for(int i = 0; i < 10; ++i){
+        {
+            std::lock_guard<std::mutex> lg{c.mx_};
+            c.counter_++;
+            ss << "Thread " << std::this_thread::get_id() << " set "
+                    << "the counter to " << c.counter_ << "\n";
+            std::cout << ss.str();
+            ss.str("");
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
 
 int ex1(){
     counter c{};
-    // std::vector<ScopedThread> vec{};
+    std::vector<ScopedThread> vec{};
 
-    ScopedThread s1{std::move(std::thread{IncrementCounter, std::ref(c)})};
-    ScopedThread s2{std::move(std::thread{IncrementCounter, std::ref(c)})};
+    // ScopedThread s1{std::move(std::thread{IncrementCounter, std::ref(c)})};
+    // ScopedThread s2{std::move(std::thread{IncrementCounter, std::ref(c)})};
 
-    // for(int i = 0; i < 10; ++i){
-    //     vec.push_back(ScopedThread{
-    //                   std::move(std::thread{IncrementCounter, std::ref(c)})
-    //                   });
-    // }
+    for(int i = 0; i < 10; ++i){
+        vec.push_back(ScopedThread{
+                      std::move(std::thread{IncrementCounter, std::ref(c)})
+                      });
+    }
     return 0;
 }
