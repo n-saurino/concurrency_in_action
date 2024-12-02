@@ -18,7 +18,7 @@ else()
     message(FATAL_ERROR "Could not find Boost")
 endif()
 
-add_executable(main src/c2/c2.cpp)
+add_executable(main src/main.cpp src/c3/c3.cpp)
 
 # Include Boost headers
 target_include_directories(main PRIVATE ${Boost_INCLUDE_DIRS} "${CMAKE_SOURCE_DIR}/include")
