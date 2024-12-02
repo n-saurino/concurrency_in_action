@@ -6,6 +6,10 @@
 #include <sstream>
 #include "ScopedThread.hpp"
 
+// Write a program where multiple threads increment a shared counter. Use a std::mutex to protect the shared counter and ensure its value is updated correctly.
+// 	-Challenge: Remove the mutex and observe the effects. Can you explain why the counter might not increment correctly?
+// 	-Extra Credit: Use std::atomic<int> instead of a mutex. How does this compare in performance and correctness?
+
 struct counter{
     int counter_{0};
     std::mutex mx_;
